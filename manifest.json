@@ -28,5 +28,9 @@
       "default_popup" :  "popup.html"
     },
 
+    "web_accessible_resources" : [
+      "fakerequest.mp4"
+    ],
+
     "content_security_policy": "script-src 'self';  object-src 'self' blob:; img-src blob: data:;"
   }

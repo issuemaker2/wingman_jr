@@ -642,13 +642,18 @@ browser.webRequest.onHeadersReceived.addListener(
 
 ///////////////////////////////Video Stuff////////////////////////////////
 
-const SCAN_STEP_SECONDS = 2.0;
+const SCAN_STEP_SECONDS = 3.0;
 const SCAN_TRIGGER_BYTES = 100*1000;
-let unsafePictures = [];
+let badUrls = [];
 
 async function video_listener(details) {
+    if(details.url == 'http://non-existent-host/test.mp4') {
+        return;
+    }
+    console.log('VIDEO request '+details.requestId+' '+details.url);
     let mimeType = '';
     let length = -1;
+    let contentLengthIndex = -1;
     for(let i=0; i<details.responseHeaders.length; i++) {
         let header = details.responseHeaders[i];
         let headerName = header.name.toLowerCase();
@@ -657,6 +662,7 @@ async function video_listener(details) {
         }
         if (headerName == 'content-length') {
             length = header.value-0;
+            contentLengthIndex = i+0;
         }
     }
     console.log('VIDEO mime type check for '+details.requestId+' '+mimeType+': '+length);
@@ -672,15 +678,24 @@ async function video_listener(details) {
     }
     console.log('VIDEO: media mimeType: '+mimeType+' isVideo? '+isVideo);
 
+    let filter = browser.webRequest.filterResponseData(details.requestId);
+    
+    if(badUrls.indexOf(details.url) > -1) {
+        console.log('Video unsafe repeat replacement for '+details.requestId+' with placeholder of length '+placeholderMovieBuffer.byteLength+' at '+details.url);
+        details.responseHeaders[contentLengthIndex] = placeholderMovieBuffer.byteLength;
+        filter.onstart = function() {
+            filter.write(placeholderMovieBuffer);
+            filter.close();
+        }
+        return details;
+    }
+
     console.log('VIDEO headers '+details.requestId);
     const startTime = performance.now();
     let inferenceVideo = document.createElement('video');
-    //inferenceVideo.width = IMAGE_SIZE;
-    //inferenceVideo.height = IMAGE_SIZE;
     inferenceVideo.type = mimeType;
     inferenceVideo.autoplay = false;  
 
-    let filter = browser.webRequest.filterResponseData(details.requestId);
     let allData = [];
     let pushData = [];
     let scanData = [];
@@ -741,7 +756,25 @@ async function video_listener(details) {
         pushData = [];
         let blob = new Blob(allData, {type: mimeType});
         let url = URL.createObjectURL(blob);
-        inferenceVideo.src = url;
+        //inferenceVideo.src = url;
+        
+        console.log('Video Fake src set!');
+        inferenceVideo.type = mimeType;
+        inferenceVideo.src = 'http://non-existent-host/test.mp4';
+        /* Experimenting with ReadableStream - doesn't work... :(
+        let stream = new ReadableStream({
+            start(controller) { 
+                for(let i=0; i<allData.length; i++) {
+                    console.log('Video event readable stream write '+allData[i].byteLength);
+                    controller.enqueue(allData[i]);
+                }
+                controller.close();
+            }
+        });
+        let response = new Response(stream);
+        console.log('Video event readable stream '+response.url);
+        inferenceVideo.src = response.url; //response.url is blank... see 
+        */
     }
     
     let onSeeked = async function() {
@@ -752,14 +785,15 @@ async function video_listener(details) {
             //stop the presses!
             console.log('Video event score UNSAFE '+details.requestId+' with score '+sqrxrScore);
             isUnsafeVideo = true;
+            badUrls.push(details.url);
 
             try {
             let badImageCanvas = document.createElement('canvas');
-            badImageCanvas.width = IMAGE_SIZE;
-            badImageCanvas.height = IMAGE_SIZE;
+            badImageCanvas.width = inferenceVideo.videoWidth;
+            badImageCanvas.height = inferenceVideo.videoHeight;
             let badImageCtx = badImageCanvas.getContext('2d');
             badImageCtx.imageSmoothingEnabled = true;
-            badImageCtx.drawImage(inferenceVideo, 0, 0, inferenceVideo.width, inferenceVideo.height, 0, 0, IMAGE_SIZE,IMAGE_SIZE);
+            badImageCtx.drawImage(inferenceVideo, 0, 0, inferenceVideo.width, inferenceVideo.height, 0, 0, inferenceVideo.width, inferenceVideo.height);
             badImageCanvas.toBlob(function(blob){
                 let badImageUrl = URL.createObjectURL(blob);
                 console.log('Video event score UNSAFE '+details.requestId+' saving to bad.png');
@@ -782,6 +816,7 @@ async function video_listener(details) {
             allData = null;
             inferenceVideo = null;
             inferenceCanvas = null;
+            return;
         }
         if(inferenceVideo.currentTime > processedSeconds) {
             processedSeconds = inferenceVideo.currentTime;
@@ -804,7 +839,7 @@ async function video_listener(details) {
         let newTime = processedSeconds + SCAN_STEP_SECONDS;
         if(processedSeconds < timeStart) {
             console.log('Video seek setup beginning '+timeStart);
-            inferenceVideo.currentTime = timeStart;
+            inferenceVideo.currentTime = timeStart+0.0001;
         } else if(newTime < timeEnd) {
             console.log('Video seek setup normal '+newTime);
             inferenceVideo.currentTime = newTime;
@@ -885,6 +920,36 @@ browser.webRequest.onHeadersReceived.addListener(
     ["blocking","responseHeaders"]
   );
 
+async function fake_listener(details) {
+    if(details.url != 'http://non-existent-host/test.mp4') {
+        return;
+    }
+    console.log('Video fake headers received '+details.requestId+' '+details.url);
+    for(let i=0; i<details.responseHeaders.length; i++) {
+        let header = details.responseHeaders[i];
+        let headerName = header.name.toLowerCase();
+        if(headerName == "content-type") {
+            console.log('Video fake mime type changed!')
+            header.value = 'video/mp4';
+        }
+    }
+    console.log('Video Fake Listener Engaged!');
+    let filter = browser.webRequest.filterResponseData(details.requestId);
+    filter.onstart = function() {
+        console.log('Video Fake starting???!');
+        filter.write(placeholderMovieBuffer);
+        filter.close();
+    }
+    return details;
+}
+
+browser.webRequest.onHeadersReceived.addListener(
+    fake_listener,
+    {urls:["<all_urls>"], types:["media"]},
+    ["blocking","responseHeaders"]
+  );
+
+
 ///////////////////////////////Context Menu//////////////////////////////
 browser.menus.create({
     id: "toggle-review-mode",
@@ -923,4 +988,11 @@ function handleMessage(request, sender, sendResponse) {
 browser.runtime.onMessage.addListener(handleMessage);
 setZone('neutral');
 browser.browserAction.setIcon({path: "icons/wingman_icon_32.png"});
+let placeholderMovieBuffer = null;
+async function loadPlaceholderMovie() {
+    let response = await fetch(browser.runtime.getURL('icons/wingman_placeholder.mp4'));
+    placeholderMovieBuffer = await response.arrayBuffer();
+    console.log('Placeholder MP4 loaded with length '+placeholderMovieBuffer.byteLength)
+}
+loadPlaceholderMovie();
 wingman_startup();
