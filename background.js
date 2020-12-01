@@ -161,7 +161,6 @@ var zone = 'neutral';
 function setZone(newZone)
 {
     console.log('Zone request to: '+newZone);
-    let didZoneChange = false;
     switch(newZone)
     {
         case 'trusted':
@@ -169,7 +168,6 @@ function setZone(newZone)
             zonePrecision = 4929/(37+4929);
             browser.browserAction.setIcon({path: "icons/wingman_icon_32_trusted.png"});
             zone = newZone;
-            didZoneChange = true;
             console.log('Zone is now trusted!');
             break;
         case 'neutral':
@@ -177,7 +175,6 @@ function setZone(newZone)
             zonePrecision = 5517/(113+5517);
             browser.browserAction.setIcon({path: "icons/wingman_icon_32_neutral.png"});
             zone = newZone;
-            didZoneChange = true;
             console.log('Zone is now neutral!');
             break;
         case 'untrusted':
@@ -185,13 +182,10 @@ function setZone(newZone)
             zonePrecision = 6784/(754+6784);
             browser.browserAction.setIcon({path: "icons/wingman_icon_32_untrusted.png"});
             zone = newZone;
-            didZoneChange = true;
             console.log('Zone is now untrusted!')
             break;
     }
-    if(didZoneChange) {
-        clearPredictionBuffer();
-    }
+    clearPredictionBuffer();
 }
 
 function isSafe(sqrxrScore)
